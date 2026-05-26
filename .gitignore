@@ -1,0 +1,68 @@
+# Go build outputs
+/bin/
+/build/
+/dist/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Go workspace / modules
+go.work
+go.work.sum
+
+# Coverage / profiling
+*.cover
+*.cov
+coverage.out
+coverage.html
+*.prof
+cpu.pprof
+mem.pprof
+trace.out
+
+# LLVM / compiler generated files
+*.ll
+*.bc
+*.s
+*.asm
+*.o
+*.obj
+*.a
+*.so
+*.dylib
+*.exe
+
+# Generated executables from examples
+/examples/*/out
+/examples/*.out
+/examples/*.bin
+/examples/*.exe
+/examples/hello
+/hello
+/out
+
+# Temporary compiler outputs
+/tmp/
+/.cache/
+*.tmp
+*.temp
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Debuggers
+.gdb_history
+.lldb/
+.vscode/launch.json
+
+# Logs
+*.log
