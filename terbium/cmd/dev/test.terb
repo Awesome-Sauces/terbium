@@ -1,0 +1,15 @@
+// Pre-processor directives identified by "#"
+
+#import ("stdio")
+
+
+private main(String[] args){
+	stdio.printf("Hello World!"); // Colon or newline works, tokenized as "endline".
+
+
+	int32 x = 32; int32 y=46;
+
+	if x==y {
+		return x**2
+	}
+}
