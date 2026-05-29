@@ -1,0 +1,82 @@
+
+
+
+#import stdio
+
+
+main :: void () {
+    String input = stdio.input("Enter two numbers separated by a singular space: ")
+
+    String str_A = new String("");
+    String str_B = "";
+
+    bool binary_switch = false;
+
+    // one thing that sometimes frustrates me is the ambiguity of continue,
+    // i think ill assign logic and loops continue a "ID"
+    // e.g. for x in range(50) {if x == 49{for z in range(60){if z == 30 {return;}}}}
+    // the first for loop has ID:1 the first if statement has ID:2 the second for loop has ID:3
+    // the second if statement has ID:4
+    // say we wanted to continue if z == 30, but we dont want to continue the holding for loop instead
+    // we want to continue the parent, we would do: continue 1
+
+    for c in range(asChar(input)) {
+        if c == ' '{
+            binary_switch = true;
+            continue
+        }
+        
+        if binary_switch {
+            str_B.append(c)
+        }else {
+            str_A.append(c)
+        }
+    }
+
+}
+
+
+-----example-----
+
+#import ("cuda")
+#import ("core")
+#import ("stdio")
+#import ("math)
+
+object Matrix {
+    int dim,
+    int[] values, 
+}
+
+
+extends Matrix private softmax_norm :: void () {
+
+}
+
+
+private matmul ::  (cuda.Matrix A,  B) 
+
+main :: void () {
+    // "new" keyword auto mallocs, but does not auto free.
+    cuda.Matrix A = new cuda.Matrix(cuda.f16, 4,4);
+    cuda.Matrix B = new cuda.Matrix(cuda.f16, 4,4);
+
+
+    // Will return auto-malloc'd result
+    cuda.Matrix C = cuda.matmul(A,B);
+
+    // Every object has the ".ptr" method 
+    core.memory.free(A.ptr);
+    core.memory.free(B.ptr);
+
+    stdio.out.println(C);
+
+    core.memory.free(C.ptr);
+
+
+    exit(0);
+
+
+}
+
+
