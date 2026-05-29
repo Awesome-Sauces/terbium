@@ -57,16 +57,26 @@ func Build(inputPath string, outputPath string) error {
 
 func Dev5262026_EmitLexical(inputPath string, outputPath string) error {
 
-	src, err := os.ReadFile(inputPath)
+	tokens, err := lexer.Lex(inputPath)
 	if err != nil {
 		return err
 	}
 
-	log.Info("Lexing source", "file", inputPath, "filesize", len(src))
+	for i := range tokens {
+		info_args := []string{}
 
-	tokens, err := lexer.Lex(string(src))
-	if err != nil {
-		return err
+		if tokens[i].Children != nil {
+			for x := range tokens[i].Children {
+				if tokens[i].Children[x].Children != nil {
+					info_args = append(info_args, fmt.Sprintf("%s (contains %d children)", lexer.TokenTypeToString(tokens[i].Children[x].Type), len(tokens[i].Children[x].Children)))
+				} else {
+					info_args = append(info_args, lexer.TokenTypeToString(tokens[i].Children[x].Type))
+				}
+				info_args = append(info_args, string(tokens[i].Children[x].Literal))
+			}
+		}
+
+		log.Info(lexer.TokenTypeToString(tokens[i].Type), info_args)
 	}
 
 	log.Info("Generated tokens", "count", len(tokens))

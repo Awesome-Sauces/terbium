@@ -1,0 +1,9 @@
+matmul C = A x Y, 3x3
+matmul F = D x E, 4x4
+
+matmul C = A x Y, 1024x1024
+
+matmul C = softmax(C)
+
+matmul C = C x F
+

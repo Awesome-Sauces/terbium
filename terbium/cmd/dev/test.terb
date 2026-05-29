@@ -1,15 +1,13 @@
-// Pre-processor directives identified by "#"
-
-#import ("stdio")
+#import stdio
 
 
-private main(String[] args){
-	stdio.printf("Hello World!"); // Colon or newline works, tokenized as "endline".
 
-
-	int32 x = 32; int32 y=46;
-
-	if x==y {
-		return x**2
-	}
+testA :: int32(int32 a, int32 b) {
+	return a*b;
 }
+
+
+main :: void () {
+    String input = stdio.input("Enter: ")
+}
+

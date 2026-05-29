@@ -1,382 +1,467 @@
 package lexer
 
 import (
-	"bufio"
 	"fmt"
-	"strings"
+	"os"
 	"unicode"
 
 	"github.com/Awesome-Sauces/terbium/internal/log"
 )
 
 type Token struct {
-	Type    TokenType
-	Literal string
+	Type     uint8
+	Literal  []byte
+	Children []Token
 }
-
-type TokenType string
 
 const (
-	ILLEGAL       TokenType = "ILLEGAL"
-	EOF           TokenType = "EOF"
-	PREPDIRECTIVE TokenType = "PREPROCESSOR_DIRECTIVE"
-	METHOD        TokenType = "METHOD" // another word for a function
-	PRIVATE       TokenType = "PRIVATE"
-	PUBLIC        TokenType = "PUBLIC"
-	STRINGLITERAL TokenType = "STRING_LITERAL"
-	INTLITERAL    TokenType = "INT_LITERAL"
-	FLOATLITERAL  TokenType = "FLOAT_LITERAL"
-	IDENTIFIER    TokenType = "IDENTIFIER"
-	OPERATOR      TokenType = "OPERATOR"
-	DELIMITER     TokenType = "DELIMITER"
-	LCBRACKET     TokenType = "LEFT_CURLY_BRACKET"
-	RCBRACKET     TokenType = "RIGHT_CURLY_BRACKET"
-	LPAREN        TokenType = "LEFT_PAREN"
-	RPAREN        TokenType = "RIGHT_PAREN"
-	SEMICOLON     TokenType = "SEMICOLON" // when lexing we need to treat this as the start of a "newline"
-	LSBRACKET     TokenType = "LEFT_SQUARE_BRACKET"
-	RSBRACKET     TokenType = "RIGHT_SQUARE_BRACKET"
+	IDENTIFIER = iota
+	PARENTHETICAL_CONTAINER
+	SQUARE_BRACKET_CONTAINER
+	CURLY_BRACE_CONTAINER
+	STRING_CONTAINER
+	NUMBER
+	STRING
+	KEYWORD
+	OPERATOR
+	EOF
+	NIL
 )
 
-var keywords = map[string]TokenType{
-	"method":  METHOD,
-	"private": PRIVATE,
-	"public":  PUBLIC,
-}
-
-var multiCharOperators = map[string]struct{}{
-	"==": {},
-	"!=": {},
-	"<=": {},
-	">=": {},
-	"&&": {},
-	"||": {},
-	"+=": {},
-	"-=": {},
-	"*=": {},
-	"/=": {},
-	"%=": {},
-	"++": {},
-	"--": {},
-	"->": {},
-	"=>": {},
-	"::": {},
-	"**": {},
-}
-
-func isBlankLine(line string) bool {
-	line = strings.TrimSpace(line)
-	return line == "" || strings.HasPrefix(line, "//")
-}
-
-func isComment(field string) bool {
-	return strings.HasPrefix(strings.TrimSpace(field), "//")
-}
-
-func isIdentifierStart(ch rune) bool {
-	return unicode.IsLetter(ch) || ch == '_'
-}
-
-func isIdentifierPart(ch rune) bool {
-	return unicode.IsLetter(ch) || unicode.IsDigit(ch) || ch == '_'
-}
-
-func isOperatorChar(ch rune) bool {
-	switch ch {
-	case '+', '-', '*', '/', '%', '=', '!', '<', '>', '&', '|', '^', '~':
-		return true
+func TokenTypeToString(Type uint8) string {
+	switch Type {
+	case IDENTIFIER:
+		return "IDENTIFIER"
+	case PARENTHETICAL_CONTAINER:
+		return "PARENTHETICAL_CONTAINER"
+	case SQUARE_BRACKET_CONTAINER:
+		return "SQUARE_BRACKET_CONTAINER"
+	case CURLY_BRACE_CONTAINER:
+		return "CURLY_BRACE_CONTAINER"
+	case STRING_CONTAINER:
+		return "STRING_CONTAINER"
+	case NUMBER:
+		return "NUMBER"
+	case STRING:
+		return "STRING"
+	case KEYWORD:
+		return "KEYWORD"
+	case OPERATOR:
+		return "OPERATOR"
+	case EOF:
+		return "EOF"
+	case NIL:
+		return "NIL"
 	default:
-		return false
+		return "UNKNOWN"
 	}
 }
 
-func isDelimiterChar(ch rune) bool {
-	switch ch {
-	case ',', ':', '.':
-		return true
-	default:
-		return false
-	}
+type lexer struct {
+	src  []byte
+	pos  int
+	line int
+	col  int
 }
 
-func tokenForSingleChar(ch rune) TokenType {
-	switch ch {
-	case '{':
-		return LCBRACKET
-	case '}':
-		return RCBRACKET
-	case '(':
-		return LPAREN
-	case ')':
-		return RPAREN
-	case '[':
-		return LSBRACKET
-	case ']':
-		return RSBRACKET
-	case ';':
-		return SEMICOLON
-	default:
-		return ILLEGAL
-	}
-}
-
-func emitToken(tokens *[]Token, lineNumber int, token Token) {
-	*tokens = append(*tokens, token)
-
-	log.Info(
-		fmt.Sprintf("L%d token", lineNumber),
-		"type", token.Type,
-		"literal", token.Literal,
-	)
-}
-
-func Lex(source string) ([]Token, error) {
-	scanner := bufio.NewScanner(strings.NewReader(source))
-	scanner.Split(bufio.ScanLines)
-
-	tokens := []Token{}
-	lineNumber := 1
-
-	for scanner.Scan() {
-		line := scanner.Text()
-
-		log.Info(
-			fmt.Sprintf("L%d", lineNumber),
-			"literal", line,
-		)
-
-		if isBlankLine(line) {
-			log.Info(
-				fmt.Sprintf("L%d skipped", lineNumber),
-				"reason", "blank line or full-line comment",
-			)
-
-			lineNumber++
-			continue
-		}
-
-		runes := []rune(line)
-		i := 0
-
-		for i < len(runes) {
-			ch := runes[i]
-
-			if unicode.IsSpace(ch) {
-				i++
-				continue
-			}
-
-			// Line comment
-			if ch == '/' && i+1 < len(runes) && runes[i+1] == '/' {
-				log.Info(
-					fmt.Sprintf("L%d comment", lineNumber),
-					"literal", string(runes[i:]),
-				)
-				break
-			}
-
-			// Preprocessor directive.
-			// Consumes the rest of the line.
-			if ch == '#' {
-				literal := strings.TrimSpace(string(runes[i:]))
-
-				emitToken(&tokens, lineNumber, Token{
-					Type:    PREPDIRECTIVE,
-					Literal: literal,
-				})
-
-				break
-			}
-
-			// String literal
-			if ch == '"' {
-				start := i
-				i++ // consume opening quote
-
-				escaped := false
-				closed := false
-
-				for i < len(runes) {
-					if escaped {
-						escaped = false
-						i++
-						continue
-					}
-
-					if runes[i] == '\\' {
-						escaped = true
-						i++
-						continue
-					}
-
-					if runes[i] == '"' {
-						i++ // consume closing quote
-						closed = true
-						break
-					}
-
-					i++
-				}
-
-				literal := string(runes[start:i])
-				tokenType := STRINGLITERAL
-
-				if !closed {
-					tokenType = ILLEGAL
-
-					log.Info(
-						fmt.Sprintf("L%d lexer error", lineNumber),
-						"reason", "unterminated string literal",
-						"literal", literal,
-					)
-				}
-
-				emitToken(&tokens, lineNumber, Token{
-					Type:    tokenType,
-					Literal: literal,
-				})
-
-				continue
-			}
-
-			// Number literal: int or float
-			if unicode.IsDigit(ch) {
-				start := i
-				hasDot := false
-
-				for i < len(runes) {
-					if unicode.IsDigit(runes[i]) {
-						i++
-						continue
-					}
-
-					if runes[i] == '.' && !hasDot {
-						if i+1 < len(runes) && runes[i+1] == '.' {
-							break
-						}
-
-						hasDot = true
-						i++
-						continue
-					}
-
-					break
-				}
-
-				tokenType := INTLITERAL
-				if hasDot {
-					tokenType = FLOATLITERAL
-				}
-
-				emitToken(&tokens, lineNumber, Token{
-					Type:    tokenType,
-					Literal: string(runes[start:i]),
-				})
-
-				continue
-			}
-
-			// Identifier or keyword
-			if isIdentifierStart(ch) {
-				start := i
-				i++
-
-				for i < len(runes) && isIdentifierPart(runes[i]) {
-					i++
-				}
-
-				literal := string(runes[start:i])
-				tokenType, ok := keywords[literal]
-				if !ok {
-					tokenType = IDENTIFIER
-				}
-
-				emitToken(&tokens, lineNumber, Token{
-					Type:    tokenType,
-					Literal: literal,
-				})
-
-				continue
-			}
-
-			// Brackets, parentheses, semicolon
-			if tokenType := tokenForSingleChar(ch); tokenType != ILLEGAL {
-				emitToken(&tokens, lineNumber, Token{
-					Type:    tokenType,
-					Literal: string(ch),
-				})
-
-				i++
-				continue
-			}
-
-			// Operators, including multi-character operators
-			if isOperatorChar(ch) {
-				if i+1 < len(runes) {
-					two := string(runes[i : i+2])
-
-					if _, ok := multiCharOperators[two]; ok {
-						emitToken(&tokens, lineNumber, Token{
-							Type:    OPERATOR,
-							Literal: two,
-						})
-
-						i += 2
-						continue
-					}
-				}
-
-				emitToken(&tokens, lineNumber, Token{
-					Type:    OPERATOR,
-					Literal: string(ch),
-				})
-
-				i++
-				continue
-			}
-
-			// Delimiters
-			if isDelimiterChar(ch) {
-				emitToken(&tokens, lineNumber, Token{
-					Type:    DELIMITER,
-					Literal: string(ch),
-				})
-
-				i++
-				continue
-			}
-
-			// Anything unknown
-			emitToken(&tokens, lineNumber, Token{
-				Type:    ILLEGAL,
-				Literal: string(ch),
-			})
-
-			log.Info(
-				fmt.Sprintf("L%d lexer warning", lineNumber),
-				"reason", "unknown character",
-				"literal", string(ch),
-			)
-
-			i++
-		}
-
-		lineNumber++
-	}
-
-	if err := scanner.Err(); err != nil {
+func Lex(filepath string) ([]Token, error) {
+	src, err := os.ReadFile(filepath)
+	if err != nil {
 		return nil, err
 	}
 
-	emitToken(&tokens, lineNumber, Token{
+	log.Trace(fmt.Sprintf("Scanning file %s", filepath))
+
+	l := &lexer{
+		src:  src,
+		pos:  0,
+		line: 1,
+		col:  1,
+	}
+
+	tokens, err := l.lexUntil(0)
+	if err != nil {
+		return nil, err
+	}
+
+	tokens = append(tokens, Token{
 		Type:    EOF,
-		Literal: "",
+		Literal: []byte{},
 	})
 
-	log.Info(
-		"lexer complete",
-		"tokens", len(tokens),
-	)
+	return tokens, nil
+}
+
+func (l *lexer) lexUntil(closing byte) ([]Token, error) {
+	tokens := []Token{}
+
+	for !l.atEnd() {
+		l.skipWhitespaceAndComments()
+
+		if l.atEnd() {
+			break
+		}
+
+		c := l.peek()
+
+		if closing != 0 && c == closing {
+			l.advance()
+			return tokens, nil
+		}
+
+		switch c {
+		case '(':
+			tok, err := l.lexContainer('(', ')', PARENTHETICAL_CONTAINER)
+			if err != nil {
+				return nil, err
+			}
+			tokens = append(tokens, tok)
+
+		case '[':
+			tok, err := l.lexContainer('[', ']', SQUARE_BRACKET_CONTAINER)
+			if err != nil {
+				return nil, err
+			}
+			tokens = append(tokens, tok)
+
+		case '{':
+			tok, err := l.lexContainer('{', '}', CURLY_BRACE_CONTAINER)
+			if err != nil {
+				return nil, err
+			}
+			tokens = append(tokens, tok)
+
+		case ')', ']', '}':
+			return nil, l.errf("unexpected closing delimiter %q", c)
+
+		case '"':
+			tok, err := l.lexQuoted('"', STRING_CONTAINER)
+			if err != nil {
+				return nil, err
+			}
+			tokens = append(tokens, tok)
+
+		case '\'':
+			tok, err := l.lexQuoted('\'', STRING)
+			if err != nil {
+				return nil, err
+			}
+			tokens = append(tokens, tok)
+
+		case '#':
+			tokens = append(tokens, l.lexDirectiveOrOperator())
+
+		default:
+			if isIdentStart(c) {
+				tokens = append(tokens, l.lexIdentifierOrKeyword())
+			} else if isDigit(c) {
+				tokens = append(tokens, l.lexNumber())
+			} else {
+				tokens = append(tokens, l.lexOperator())
+			}
+		}
+	}
+
+	if closing != 0 {
+		return nil, l.errf("expected closing delimiter %q before EOF", closing)
+	}
 
 	return tokens, nil
+}
+
+func (l *lexer) lexContainer(opening byte, closing byte, tokenType uint8) (Token, error) {
+	l.advance()
+
+	children, err := l.lexUntil(closing)
+	if err != nil {
+		return Token{}, err
+	}
+
+	return Token{
+		Type:     tokenType,
+		Literal:  []byte{opening, closing},
+		Children: children,
+	}, nil
+}
+
+func (l *lexer) lexQuoted(quote byte, tokenType uint8) (Token, error) {
+	l.advance()
+
+	literal := []byte{}
+
+	for !l.atEnd() {
+		c := l.peek()
+
+		if c == quote {
+			l.advance()
+			return Token{
+				Type:    tokenType,
+				Literal: literal,
+			}, nil
+		}
+
+		if c == '\\' {
+			l.advance()
+
+			if l.atEnd() {
+				return Token{}, l.errf("unterminated escape sequence")
+			}
+
+			escaped := l.peek()
+			literal = append(literal, '\\', escaped)
+			l.advance()
+			continue
+		}
+
+		literal = append(literal, c)
+		l.advance()
+	}
+
+	return Token{}, l.errf("unterminated string literal")
+}
+
+func (l *lexer) lexDirectiveOrOperator() Token {
+	start := l.pos
+
+	l.advance()
+
+	for !l.atEnd() && isIdentPart(l.peek()) {
+		l.advance()
+	}
+
+	lit := l.src[start:l.pos]
+
+	if isKeyword(lit) {
+		return Token{
+			Type:    KEYWORD,
+			Literal: lit,
+		}
+	}
+
+	return Token{
+		Type:    OPERATOR,
+		Literal: lit,
+	}
+}
+
+func (l *lexer) lexIdentifierOrKeyword() Token {
+	start := l.pos
+
+	for !l.atEnd() && isIdentPart(l.peek()) {
+		l.advance()
+	}
+
+	lit := l.src[start:l.pos]
+
+	if isKeyword(lit) {
+		return Token{
+			Type:    KEYWORD,
+			Literal: lit,
+		}
+	}
+
+	return Token{
+		Type:    IDENTIFIER,
+		Literal: lit,
+	}
+}
+
+func (l *lexer) lexNumber() Token {
+	start := l.pos
+
+	for !l.atEnd() {
+		c := l.peek()
+
+		if isDigit(c) || c == '_' {
+			l.advance()
+			continue
+		}
+
+		if c == '.' && l.peekNextIsDigit() {
+			l.advance()
+			continue
+		}
+
+		break
+	}
+
+	return Token{
+		Type:    NUMBER,
+		Literal: l.src[start:l.pos],
+	}
+}
+
+func (l *lexer) lexOperator() Token {
+	operators := []string{
+		"::",
+		"==",
+		"!=",
+		"<=",
+		">=",
+		"&&",
+		"||",
+		"+=",
+		"-=",
+		"*=",
+		"/=",
+		"%=",
+		"++",
+		"--",
+		"->",
+		"=>",
+	}
+
+	for _, op := range operators {
+		if l.matchString(op) {
+			start := l.pos
+			for range op {
+				l.advance()
+			}
+
+			return Token{
+				Type:    OPERATOR,
+				Literal: l.src[start:l.pos],
+			}
+		}
+	}
+
+	c := l.peek()
+	l.advance()
+
+	return Token{
+		Type:    OPERATOR,
+		Literal: []byte{c},
+	}
+}
+
+func (l *lexer) skipWhitespaceAndComments() {
+	for !l.atEnd() {
+		c := l.peek()
+
+		if c == ' ' || c == '\t' || c == '\r' || c == '\n' {
+			l.advance()
+			continue
+		}
+
+		if l.matchString("//") {
+			for !l.atEnd() && l.peek() != '\n' {
+				l.advance()
+			}
+			continue
+		}
+
+		if l.matchString("/*") {
+			l.advance()
+			l.advance()
+
+			for !l.atEnd() && !l.matchString("*/") {
+				l.advance()
+			}
+
+			if !l.atEnd() {
+				l.advance()
+				l.advance()
+			}
+
+			continue
+		}
+
+		break
+	}
+}
+
+func (l *lexer) advance() byte {
+	c := l.src[l.pos]
+	l.pos++
+
+	if c == '\n' {
+		l.line++
+		l.col = 1
+	} else {
+		l.col++
+	}
+
+	return c
+}
+
+func (l *lexer) peek() byte {
+	return l.src[l.pos]
+}
+
+func (l *lexer) atEnd() bool {
+	return l.pos >= len(l.src)
+}
+
+func (l *lexer) matchString(s string) bool {
+	if l.pos+len(s) > len(l.src) {
+		return false
+	}
+
+	for i := 0; i < len(s); i++ {
+		if l.src[l.pos+i] != s[i] {
+			return false
+		}
+	}
+
+	return true
+}
+
+func (l *lexer) peekNextIsDigit() bool {
+	if l.pos+1 >= len(l.src) {
+		return false
+	}
+
+	return isDigit(l.src[l.pos+1])
+}
+
+func (l *lexer) errf(format string, args ...any) error {
+	msg := fmt.Sprintf(format, args...)
+	return fmt.Errorf("lexer error at %d:%d: %s", l.line, l.col, msg)
+}
+
+func isIdentStart(c byte) bool {
+	return c == '_' || unicode.IsLetter(rune(c))
+}
+
+func isIdentPart(c byte) bool {
+	return c == '_' || unicode.IsLetter(rune(c)) || unicode.IsDigit(rune(c))
+}
+
+func isDigit(c byte) bool {
+	return c >= '0' && c <= '9'
+}
+
+func isKeyword(lit []byte) bool {
+	switch string(lit) {
+	case
+		"#import",
+		"main",
+		"void",
+		"int",
+		"float",
+		"double",
+		"bool",
+		"char",
+		"String",
+		"object",
+		"extends",
+		"private",
+		"public",
+		"new",
+		"for",
+		"in",
+		"if",
+		"else",
+		"return",
+		"continue",
+		"break",
+		"true",
+		"false",
+		"nil",
+		"null",
+		"exit":
+		return true
+	default:
+		return false
+	}
 }
